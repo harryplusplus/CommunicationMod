@@ -23,7 +23,7 @@
             <artifactId>slaythespire</artifactId>
             <version>${SlayTheSpire.version}</version>
             <scope>system</scope>
-            <systemPath>${communicationmod.slaythespire.jar}</systemPath>
+            <systemPath>${communicationmod.desktop.jar}</systemPath>
         </dependency>
         <dependency>
             <groupId>com.evacipated.cardcrawl</groupId>
@@ -96,7 +96,7 @@
                         <phase>package</phase>
                         <configuration>
                             <target>
-                                <copy file="target/CommunicationMod.jar" tofile="${communicationmod.staged.jar}"/>
+                                <copy file="target/CommunicationMod.jar" tofile="${communicationmod.build.jar}"/>
                             </target>
                         </configuration>
                         <goals>
