@@ -11,13 +11,10 @@
     <description>Used to help external programs communicate with Slay the Spire</description>
 
     <properties>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
+        <maven.compiler.release>8</maven.compiler.release>
         <SlayTheSpire.version>11-30-2020</SlayTheSpire.version>
         <ModTheSpire.version>3.18.1</ModTheSpire.version>
         <BaseMod.version>5.27.0</BaseMod.version>
-        <communicationmod.lib.dir>${basedir}/../lib</communicationmod.lib.dir>
-        <communicationmod.mods.dir>${basedir}/../_ModTheSpire/mods</communicationmod.mods.dir>
     </properties>
 
     <dependencies>
@@ -26,21 +23,21 @@
             <artifactId>slaythespire</artifactId>
             <version>${SlayTheSpire.version}</version>
             <scope>system</scope>
-            <systemPath>${communicationmod.lib.dir}/desktop-1.0.jar</systemPath>
+            <systemPath>${communicationmod.slaythespire.jar}</systemPath>
         </dependency>
         <dependency>
             <groupId>com.evacipated.cardcrawl</groupId>
             <artifactId>ModTheSpire</artifactId>
             <version>${ModTheSpire.version}</version>
             <scope>system</scope>
-            <systemPath>${communicationmod.lib.dir}/ModTheSpire.jar</systemPath>
+            <systemPath>${communicationmod.modthespire.jar}</systemPath>
         </dependency>
         <dependency>
             <groupId>com.evacipated.cardcrawl</groupId>
             <artifactId>BaseMod</artifactId>
             <version>${BaseMod.version}</version>
             <scope>system</scope>
-            <systemPath>${communicationmod.lib.dir}/BaseMod.jar</systemPath>
+            <systemPath>${communicationmod.basemod.jar}</systemPath>
         </dependency>
         <dependency>
             <groupId>com.google.code.gson</groupId>
@@ -52,6 +49,15 @@
     <build>
         <finalName>CommunicationMod</finalName>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>${maven.compiler.release}</release>
+                </configuration>
+            </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -90,7 +96,7 @@
                         <phase>package</phase>
                         <configuration>
                             <target>
-                                <copy file="target/CommunicationMod.jar" tofile="${communicationmod.mods.dir}/CommunicationMod.jar"/>
+                                <copy file="target/CommunicationMod.jar" tofile="${communicationmod.staged.jar}"/>
                             </target>
                         </configuration>
                         <goals>
