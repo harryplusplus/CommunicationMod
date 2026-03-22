@@ -49,7 +49,14 @@ public class GameStateConverter {
      * @return A string containing the JSON representation of CommunicationMod's status
      */
     public static String getCommunicationState() {
+        return getCommunicationState(null);
+    }
+
+    public static String getCommunicationState(String commandId) {
         HashMap<String, Object> response = new HashMap<>();
+        if (commandId != null) {
+            response.put("command_id", commandId);
+        }
         response.put("available_commands", CommandExecutor.getAvailableCommands());
         response.put("ready_for_command", GameStateListener.isWaitingForCommand());
         boolean isInGame = CommandExecutor.isInDungeon();

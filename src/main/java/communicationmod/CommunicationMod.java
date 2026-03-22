@@ -19,6 +19,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.File;
 import java.io.IOException;
 import java.lang.ProcessBuilder;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Properties;
@@ -29,14 +30,48 @@ import java.util.concurrent.TimeUnit;
 @SpireInitializer
 public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSubscriber, PostDungeonUpdateSubscriber, PreUpdateSubscriber, OnStateChangeSubscriber {
 
+    private static final class CommandEnvelope {
+        private final String commandText;
+        private final String commandId;
+        private final String errorMessage;
+
+        private CommandEnvelope(String commandText, String commandId, String errorMessage) {
+            this.commandText = commandText;
+            this.commandId = commandId;
+            this.errorMessage = errorMessage;
+        }
+
+        private static CommandEnvelope valid(String commandText, String commandId) {
+            return new CommandEnvelope(commandText, commandId, null);
+        }
+
+        private static CommandEnvelope invalid(String commandId, String errorMessage) {
+            return new CommandEnvelope(null, commandId, errorMessage);
+        }
+
+        private boolean isValid() {
+            return errorMessage == null;
+        }
+    }
+
+    private static final class PendingResponseMetadata {
+        private final String commandId;
+
+        private PendingResponseMetadata(String commandId) {
+            this.commandId = commandId;
+        }
+    }
+
     private static Process listener;
     private static StringBuilder inputBuffer = new StringBuilder();
     public static boolean messageReceived = false;
     private static final Logger logger = LogManager.getLogger(CommunicationMod.class.getName());
+    private static final Gson gson = new Gson();
     private static Thread writeThread;
     private static BlockingQueue<String> writeQueue;
     private static Thread readThread;
     private static BlockingQueue<String> readQueue;
+    private static ArrayDeque<PendingResponseMetadata> pendingResponseMetadata;
     private static final String MODNAME = "Communication Mod";
     private static final String AUTHOR = "Forgotten Arbiter";
     private static final String DESCRIPTION = "This mod communicates with an external program to play Slay the Spire.";
@@ -48,6 +83,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     private static final String GAME_START_OPTION = "runAtGameStart";
     private static final String VERBOSE_OPTION = "verbose";
     private static final String INITIALIZATION_TIMEOUT_OPTION = "maxInitializationTimeout";
+    private static final String COMMAND_ID_OPTION = "command-id";
     private static final String DEFAULT_COMMAND = "";
     private static final long DEFAULT_TIMEOUT = 10L;
     private static final boolean DEFAULT_VERBOSITY = true;
@@ -57,6 +93,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
         onStateChangeSubscribers = new ArrayList<>();
         CommunicationMod.subscribe(this);
         readQueue = new LinkedBlockingQueue<>();
+        pendingResponseMetadata = new ArrayDeque<>();
         try {
             Properties defaults = new Properties();
             defaults.put(GAME_START_OPTION, Boolean.toString(false));
@@ -90,17 +127,19 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
             readThread.interrupt();
         }
         if(messageAvailable()) {
+            CommandEnvelope commandEnvelope = parseCommandEnvelope(readMessage());
+            if (!commandEnvelope.isValid()) {
+                sendErrorMessage(commandEnvelope.commandId, commandEnvelope.errorMessage);
+                return;
+            }
             try {
-                boolean stateChanged = CommandExecutor.executeCommand(readMessage());
+                boolean stateChanged = CommandExecutor.executeCommand(commandEnvelope.commandText);
+                enqueuePendingResponseMetadata(commandEnvelope.commandId);
                 if(stateChanged) {
                     GameStateListener.registerCommandExecution();
                 }
             } catch (InvalidCommandException e) {
-                HashMap<String, Object> jsonError = new HashMap<>();
-                jsonError.put("error", e.getMessage());
-                jsonError.put("ready_for_command", GameStateListener.isWaitingForCommand());
-                Gson gson = new Gson();
-                sendMessage(gson.toJson(jsonError));
+                sendErrorMessage(commandEnvelope.commandId, e.getMessage());
             }
         }
     }
@@ -228,7 +267,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     }
 
     private static void sendGameState() {
-        String state = GameStateConverter.getCommunicationState();
+        String state = GameStateConverter.getCommunicationState(getNextCommandIdForResponse());
         sendMessage(state);
     }
 
@@ -243,6 +282,28 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
         if(writeQueue != null && writeThread.isAlive()) {
             writeQueue.add(message);
         }
+    }
+
+    private static void sendErrorMessage(String commandId, String errorMessage) {
+        HashMap<String, Object> jsonError = new HashMap<>();
+        if (commandId != null) {
+            jsonError.put("command_id", commandId);
+        }
+        jsonError.put("error", errorMessage);
+        jsonError.put("ready_for_command", GameStateListener.isWaitingForCommand());
+        sendMessage(gson.toJson(jsonError));
+    }
+
+    private static void enqueuePendingResponseMetadata(String commandId) {
+        pendingResponseMetadata.addLast(new PendingResponseMetadata(commandId));
+    }
+
+    private static String getNextCommandIdForResponse() {
+        PendingResponseMetadata metadata = pendingResponseMetadata.pollFirst();
+        if (metadata == null) {
+            return null;
+        }
+        return metadata.commandId;
     }
 
     private static boolean messageAvailable() {
@@ -263,6 +324,56 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
         } catch (InterruptedException e) {
             throw new RuntimeException("Interrupted while trying to read message from subprocess.");
         }
+    }
+
+    private static CommandEnvelope parseCommandEnvelope(String rawMessage) {
+        if (rawMessage == null) {
+            return CommandEnvelope.invalid(null, "No command received.");
+        }
+        String trimmedMessage = rawMessage.trim();
+        if (trimmedMessage.isEmpty()) {
+            return CommandEnvelope.invalid(null, "No command received.");
+        }
+
+        String[] tokens = trimmedMessage.split("\\s+");
+        String commandId = null;
+        int commandStartIndex = 0;
+
+        while (commandStartIndex < tokens.length && tokens[commandStartIndex].startsWith("--")) {
+            String token = tokens[commandStartIndex];
+            int separatorIndex = token.indexOf('=');
+            if (separatorIndex < 3 || separatorIndex == token.length() - 1) {
+                return CommandEnvelope.invalid(
+                        commandId,
+                        String.format("Invalid option format \"%s\". Expected --key=value.", token)
+                );
+            }
+
+            String optionKey = token.substring(2, separatorIndex);
+            String optionValue = token.substring(separatorIndex + 1);
+            if (COMMAND_ID_OPTION.equals(optionKey)) {
+                if (commandId != null) {
+                    return CommandEnvelope.invalid(commandId, "Duplicate --command-id option.");
+                }
+                commandId = optionValue;
+            } else {
+                return CommandEnvelope.invalid(commandId, String.format("Unknown option \"%s\".", token));
+            }
+            commandStartIndex += 1;
+        }
+
+        if (commandStartIndex >= tokens.length) {
+            return CommandEnvelope.invalid(commandId, "No command provided after leading options.");
+        }
+
+        StringBuilder commandBuilder = new StringBuilder();
+        for (int i = commandStartIndex; i < tokens.length; i++) {
+            if (commandBuilder.length() > 0) {
+                commandBuilder.append(' ');
+            }
+            commandBuilder.append(tokens[i]);
+        }
+        return CommandEnvelope.valid(commandBuilder.toString(), commandId);
     }
 
     private static String[] getSubprocessCommand() {
@@ -301,6 +412,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     }
 
     private boolean startExternalProcess() {
+        pendingResponseMetadata.clear();
         if(readThread != null) {
             readThread.interrupt();
         }
