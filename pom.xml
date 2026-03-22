@@ -16,6 +16,8 @@
         <SlayTheSpire.version>11-30-2020</SlayTheSpire.version>
         <ModTheSpire.version>3.18.1</ModTheSpire.version>
         <BaseMod.version>5.27.0</BaseMod.version>
+        <communicationmod.lib.dir>${basedir}/../lib</communicationmod.lib.dir>
+        <communicationmod.mods.dir>${basedir}/../_ModTheSpire/mods</communicationmod.mods.dir>
     </properties>
 
     <dependencies>
@@ -24,21 +26,21 @@
             <artifactId>slaythespire</artifactId>
             <version>${SlayTheSpire.version}</version>
             <scope>system</scope>
-            <systemPath>${basedir}/../lib/desktop-1.0.jar</systemPath>
+            <systemPath>${communicationmod.lib.dir}/desktop-1.0.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>com.evacipated.cardcrawl</groupId>
             <artifactId>ModTheSpire</artifactId>
             <version>${ModTheSpire.version}</version>
             <scope>system</scope>
-            <systemPath>${basedir}/../lib/ModTheSpire.jar</systemPath>
+            <systemPath>${communicationmod.lib.dir}/ModTheSpire.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>com.evacipated.cardcrawl</groupId>
             <artifactId>BaseMod</artifactId>
             <version>${BaseMod.version}</version>
             <scope>system</scope>
-            <systemPath>${basedir}/../lib/BaseMod.jar</systemPath>
+            <systemPath>${communicationmod.lib.dir}/BaseMod.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>com.google.code.gson</groupId>
@@ -88,7 +90,7 @@
                         <phase>package</phase>
                         <configuration>
                             <target>
-                                <copy file="target/CommunicationMod.jar" tofile="../_ModTheSpire/mods/CommunicationMod.jar"/>
+                                <copy file="target/CommunicationMod.jar" tofile="${communicationmod.mods.dir}/CommunicationMod.jar"/>
                             </target>
                         </configuration>
                         <goals>
