@@ -19,7 +19,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.File;
 import java.io.IOException;
 import java.lang.ProcessBuilder;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Properties;
@@ -54,14 +53,6 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
         }
     }
 
-    private static final class PendingResponseMetadata {
-        private final String commandId;
-
-        private PendingResponseMetadata(String commandId) {
-            this.commandId = commandId;
-        }
-    }
-
     private static Process listener;
     private static StringBuilder inputBuffer = new StringBuilder();
     public static boolean messageReceived = false;
@@ -71,7 +62,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     private static BlockingQueue<String> writeQueue;
     private static Thread readThread;
     private static BlockingQueue<String> readQueue;
-    private static ArrayDeque<PendingResponseMetadata> pendingResponseMetadata;
+    private static String pendingResponseCommandId;
     private static final String MODNAME = "Communication Mod";
     private static final String AUTHOR = "Forgotten Arbiter";
     private static final String DESCRIPTION = "This mod communicates with an external program to play Slay the Spire.";
@@ -93,7 +84,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
         onStateChangeSubscribers = new ArrayList<>();
         CommunicationMod.subscribe(this);
         readQueue = new LinkedBlockingQueue<>();
-        pendingResponseMetadata = new ArrayDeque<>();
+        pendingResponseCommandId = null;
         try {
             Properties defaults = new Properties();
             defaults.put(GAME_START_OPTION, Boolean.toString(false));
@@ -134,7 +125,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
             }
             try {
                 boolean stateChanged = CommandExecutor.executeCommand(commandEnvelope.commandText);
-                enqueuePendingResponseMetadata(commandEnvelope.commandId);
+                setPendingResponseCommandId(commandEnvelope.commandId);
                 if(stateChanged) {
                     GameStateListener.registerCommandExecution();
                 }
@@ -267,7 +258,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     }
 
     private static void sendGameState() {
-        String state = GameStateConverter.getCommunicationState(getNextCommandIdForResponse());
+        String state = GameStateConverter.getCommunicationState(consumePendingResponseCommandId());
         sendMessage(state);
     }
 
@@ -294,16 +285,14 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
         sendMessage(gson.toJson(jsonError));
     }
 
-    private static void enqueuePendingResponseMetadata(String commandId) {
-        pendingResponseMetadata.addLast(new PendingResponseMetadata(commandId));
+    private static void setPendingResponseCommandId(String commandId) {
+        pendingResponseCommandId = commandId;
     }
 
-    private static String getNextCommandIdForResponse() {
-        PendingResponseMetadata metadata = pendingResponseMetadata.pollFirst();
-        if (metadata == null) {
-            return null;
-        }
-        return metadata.commandId;
+    private static String consumePendingResponseCommandId() {
+        String commandId = pendingResponseCommandId;
+        pendingResponseCommandId = null;
+        return commandId;
     }
 
     private static boolean messageAvailable() {
@@ -412,7 +401,7 @@ public class CommunicationMod implements PostInitializeSubscriber, PostUpdateSub
     }
 
     private boolean startExternalProcess() {
-        pendingResponseMetadata.clear();
+        pendingResponseCommandId = null;
         if(readThread != null) {
             readThread.interrupt();
         }
